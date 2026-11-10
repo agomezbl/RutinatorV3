@@ -1,0 +1,23 @@
+{
+  "name": "rutineitor-v3",
+  "version": "3.5.1",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test --test-timeout=25000 tests/*.test.mjs",
+    "verificar": "node build.mjs && node --test --test-timeout=25000 tests/*.test.mjs && node tools/revision-navegador.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.0.1",
+    "playwright": "^1.63.0"
+  },
+  "type": "module"
+}

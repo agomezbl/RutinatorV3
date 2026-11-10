@@ -11,6 +11,9 @@ const LABORABLES = [0, 1, 2, 3, 4];
 export const AJUSTES_V35 = {
   autoAprobacionHoras: 12, cenaFinde: '21:15', dormirEntreSemana: '22:30', dormirFinde: '23:45',
   horaCorteOcio: '21:00', horaCorteOcioFinde: '21:00', precioMinimoAnime: 6, pcCreditosPorBloque: 5,
+  // Banco de antes de la v3.7: plazos fijos 7/14/30, sin fondo ni freno.
+  interesHuchaTope: 25, depositoMinimo: 20, depositoPlazoMin: null, depositoPlazoMax: null,
+  depositoPctMin: null, depositoPctMax: null, depositoMaximo: 0, fondoActivo: false, frenoActivo: false,
 };
 
 /** tipo: estandar | eleccion | obligatoria | circadiana | puntual | preparacion */

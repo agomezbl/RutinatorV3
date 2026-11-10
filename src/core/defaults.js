@@ -17,17 +17,36 @@ export const AJUSTES_POR_DEFECTO = {
   // --- Hucha e interés ---
   interesHuchaPct: 1,
   interesHuchaPeriodo: 'semana',
-  interesHuchaTope: 25,
+  interesHuchaTope: 10,        // v3.7: como mucho 10 créditos por semana
   ultimoInteresHucha: null,
   huchaSacarNil: true,         // v3.5: Nil mueve sus créditos a la hucha y de vuelta
   categoriasPersonalizadas: null, // nombres e iconos propios de los grupos de tareas
   // --- Staking: depósito a plazo ---
   depositoActivo: true,
-  depositoMinimo: 20,
+  depositoMinimo: 10,
+  // v3.7: plazo libre entre el mínimo y el máximo; el interés va en una recta
+  depositoPlazoMin: 3,
+  depositoPlazoMax: 30,
+  depositoPctMin: 2,           // interés total a 3 días
+  depositoPctMax: 15,          // interés total a 30 días (simple)
+  depositoMaximo: 300,         // créditos en depósitos a la vez (0 = sin tope)
   deposito7Pct: 2,
   deposito14Pct: 5,
   deposito30Pct: 12,
   depositoRescateDevuelveCapital: true,
+  // --- v3.7: fondo variable (el único que puede bajar) ---
+  fondoActivo: true,
+  fondoMinPct: -4,             // lo peor que puede ir una semana
+  fondoMaxPct: 6,              // lo mejor (de media, +1 % a la semana)
+  fondoMinimo: 10,
+  fondoMaximo: 200,            // créditos puestos como mucho
+  fondoSueloPct: 75,           // nunca vale menos del 75 % de lo puesto
+  semillaFondo: null,
+  // --- v3.7: el freno y la pausa ---
+  frenoActivo: true,
+  frenoPct: 20,                // el ahorro no da más del 20 % de lo ganado trabajando
+  rendimientoAplazado: 0,
+  bancoPausado: false,
   // --- Staking: apuesta de racha ---
   apuestaActiva: true,
   apuestaMaxima: 60,

@@ -15,6 +15,8 @@ import { saldoHucha, saldoEstrellas, saldoProvisional, saldoCreditos, modoSaldo 
 import { informeSalud, AMBITOS_MULTIPLICADOR, precioEfectivo, estadoObjetivo } from '../core/economy.js';
 import { CATEGORIAS } from '../core/defaults.js';
 import { GRUPOS, leerParametro, simular } from '../core/tokenomics.js';
+import { bancoV37, bancoPausado, ejemploBanco, avisosBanco, fondo } from '../core/banco.js';
+import { estadoFreno } from '../core/freno.js';
 import { tareasDelDia, cumplimientoDia } from '../core/tasks.js';
 import { stakings, stakingsActivos, capitalBloqueado, resumenStaking, TIPOS_STAKING } from '../core/staking.js';
 import {
@@ -285,6 +287,35 @@ function campoTokenomics(estado, campo) {
   </div>`;
 }
 
+/** La hucha de un vistazo: qué daría cada instrumento, el freno y los avisos. */
+function tarjetaBanco(ctx) {
+  const { estado, hoy } = ctx;
+  if (!bancoV37(estado)) return '';
+  const ej = ejemploBanco(estado);
+  const fr = estadoFreno(estado, hoy);
+  const avisos = avisosBanco(estado);
+  const f = fondo(estado);
+  return `
+    <div class="tarjeta">
+      <h2>🏦 La hucha de un vistazo${bancoPausado(estado) ? ' · ⏸️ en pausa' : ''}</h2>
+      <p class="mini tenue" style="margin:0 0 8px">Con 100 créditos:</p>
+      <div class="rejilla tres" style="margin-bottom:10px">
+        ${dato(`+${ej.cuentaSemana}`, 'Cuenta / semana')}
+        ${dato(`+${ej.depositoCorto.gana} · +${ej.depositoLargo.gana}`, `Depósito ${ej.depositoCorto.dias} d · ${ej.depositoLargo.dias} d`)}
+        ${dato(`${ej.fondoSemana.min} a +${ej.fondoSemana.max}`, 'Fondo / semana')}
+      </div>
+      <p class="mini tenue" style="margin:0">
+        ${fr.activo
+          ? `Freno: en los últimos 7 días Nil ha ganado <b>${esc(String(fr.base))}</b> con tareas, así que la hucha puede darle como mucho <b>${esc(String(fr.techo))}</b>
+             (ya lleva <b>${esc(String(fr.pagado))}</b>).${fr.aplazado > 0 ? ` Esperando al freno: <b>${esc(String(fr.aplazado))}</b>.` : ''}`
+          : 'El freno está apagado: todo lo que gana la hucha se paga al momento.'}
+        ${f ? ` En el fondo: puso <b>${esc(String(f.aportado))}</b> y vale <b>${esc(String(f.capital))}</b>.` : ''}
+      </p>
+      ${avisos.map((a) => `<p class="mini" style="margin:8px 0 0;color:var(--aviso)">⚠️ ${esc(a)}</p>`).join('')}
+      <p class="mini tenue" style="margin:8px 0 0">Los números se cambian abajo, en <b>Hucha e interés</b>, <b>Staking · depósito a plazo</b>, <b>Fondo variable</b> y <b>Freno y pausa</b>.</p>
+    </div>`;
+}
+
 function ecoReglas(ctx) {
   const { estado, weekId } = ctx;
   const sim = simular(estado, { tareasDelDiaFn: tareasDelDia, diasMuestra: weekDays(weekId) });
@@ -304,9 +335,10 @@ function ecoReglas(ctx) {
           ? `: unas <b>${esc(String(sim.semanasPremioMedio))}</b> semanas por premio grande.` : '.'}
       </p>
     </div>
+    ${tarjetaBanco(ctx)}
     <div class="tarjeta compacta">
       <p class="mini tenue" style="margin:0">
-        Las reglas de siempre, como en la v2: créditos, estrellas, hucha con interés y depósito a plazo.
+        Las reglas de siempre: créditos por tiempo, estrellas y la hucha (cuenta, depósito a plazo, fondo variable y freno).
         Lo demás está apagado y escondido en <b>Avanzado</b>. Cada cambio se guarda al momento.
       </p>
     </div>

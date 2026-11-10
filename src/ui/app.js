@@ -7,7 +7,7 @@ import {
   esc, escAttr, $, aviso, modal, cerrarModal, confirmar, visorFoto, vacio,
 } from './dom.js';
 import {
-  toDateKey, weekIdOf, addDays, fromDateKey, horaActual, creditos, hashClave, formatoFechaLarga, textoDuracion,
+  toDateKey, weekIdOf, addDays, fromDateKey, horaActual, creditos, hashClave, formatoFechaLarga, formatoFechaCorta, textoDuracion,
 } from '../core/util.js';
 import { crearStore, estadoVacio, COLECCIONES } from '../core/store.js';
 import { catalogoInicial, CATEGORIAS } from '../core/defaults.js';
@@ -47,12 +47,15 @@ import {
   procesarStakings, abrirDeposito, romperDeposito, abrirApuesta, abrirStakingSueno,
   puedeAbrirDeposito, puedeApostar, puedeAbrirStakingSueno, porcentajeDePlazo, PLAZOS,
 } from '../core/staking.js';
+import {
+  bancoV37, rangoPlazo, plazosSugeridos, fondo, meterEnFondo, sacarDeFondo,
+} from '../core/banco.js';
 import { registrarSueno, registroSueno } from '../core/circadian.js';
 import { registrarNocheEnStaking } from '../core/staking.js';
 import { validarParametro, leerParametro } from '../core/tokenomics.js';
 import { saldoHucha, saldoEstrellas, saldoCreditos, modoSaldo } from '../core/ledger.js';
 import {
-  migrarEconomia, migrarTienda, migrarTiempo, ajusteCuenta, anularMovimiento, historicoCSV, guardarEnHucha, sacarDeHucha,
+  migrarEconomia, migrarTienda, migrarTiempo, migrarBanco, ajusteCuenta, anularMovimiento, historicoCSV, guardarEnHucha, sacarDeHucha,
   validarDiaPasado, fechaRecuperable, ajustarPrecios, tiendaPausada, cambiarInstrumento,
   MOTIVOS_FRECUENTES, DIAS_ATRAS, aplicarCategorias, editarCategoria, restaurarCategoria,
   esCategoriaDeFabrica, puedeSacarNil, ETIQUETA_CUENTA,
@@ -802,6 +805,8 @@ const acciones = {
 
   'apuntar-noche': (el) => modalNoche(Boolean(el.dataset.forzar)),
   'abrir-deposito': () => modalDeposito(),
+  'meter-fondo': () => modalMeterFondo(),
+  'sacar-fondo': () => modalSacarFondo(),
   'abrir-sueno': () => modalStakingSueno(),
   'abrir-apuesta': () => modalApuesta(),
   'romper-deposito': async (el) => {
@@ -2074,7 +2079,10 @@ function modalNoche(forzar = false) {
 function modalDeposito() {
   const libre = saldoHucha(store.estado);
   const minimo = Number(leerParametro(store.estado, 'depositoMinimo', 20));
-  modal({
+  const v37 = bancoV37(store.estado);
+  const { min, max } = rangoPlazo(store.estado);
+  const inicial = v37 ? Math.min(Math.max(14, min), max) : PLAZOS[0];
+  const fondoModal = modal({
     titulo: 'Depósito a plazo',
     cuerpo: `
       <p class="mini tenue" style="margin-top:0">
@@ -2083,11 +2091,14 @@ function modalDeposito() {
       </p>
       <label for="dp-c">Cuántos créditos</label>
       <input id="dp-c" type="number" min="${minimo}" max="${libre}" value="${Math.max(minimo, Math.min(libre, 40))}">
-      <label for="dp-d">Plazo</label>
+      ${v37 ? `<label for="dp-d">Cuántos días (de ${min} a ${max})</label>
+      <input id="dp-d" type="number" min="${min}" max="${max}" step="1" value="${inicial}">
+      <div class="chips-plazo">${plazosSugeridos(store.estado).map((d) => `<button type="button" class="btn pequeno fantasma" data-plazo="${d}">${d} días</button>`).join('')}</div>`
+      : `<label for="dp-d">Plazo</label>
       <select id="dp-d">
         ${PLAZOS.map((d) => `<option value="${d}">${d} días · +${porcentajeDePlazo(store.estado, d)}%</option>`).join('')}
-      </select>
-      <p class="mini" id="dp-info" style="margin:10px 0 0"></p>`,
+      </select>`}
+      <p class="mini" id="dp-info" style="margin:10px 0 0" aria-live="polite"></p>`,
     acciones: [
       { texto: 'Cancelar', clase: 'fantasma' },
       {
@@ -2099,7 +2110,97 @@ function modalDeposito() {
           const r = abrirDeposito(store, { capital, dias, fecha: hoy() });
           if (!r.ok) { aviso(r.razon, 'mal'); return; }
           cerrar();
-          aviso(`Depósito abierto · vence el ${r.vencimiento} · +${r.interesPrevisto}`, 'bien');
+          aviso(`Depósito abierto · vence el ${formatoFechaCorta(r.vencimiento)} · +${r.interesPrevisto}`, 'bien');
+          refrescar();
+        },
+      },
+    ],
+  });
+  // Lo que ganaría, al momento, mientras elige cantidad y días.
+  const raiz = fondoModal && fondoModal.querySelector ? fondoModal : document;
+  const info = () => {
+    const c = Number(raiz.querySelector('#dp-c')?.value) || 0;
+    const d = Number(raiz.querySelector('#dp-d')?.value) || 0;
+    const pct = porcentajeDePlazo(store.estado, d);
+    const el = raiz.querySelector('#dp-info');
+    if (!el) return;
+    if (!pct) { el.textContent = v37 ? `Elige un plazo de ${min} a ${max} días.` : ''; return; }
+    el.textContent = `Interés: ${pct}% · Ganarías ${creditos(c * pct / 100)} créditos el ${formatoFechaCorta(addDays(hoy(), d))}.`;
+  };
+  raiz.addEventListener?.('input', info);
+  raiz.addEventListener?.('click', (ev) => {
+    const b = ev.target.closest?.('[data-plazo]');
+    if (!b) return;
+    raiz.querySelector('#dp-d').value = b.dataset.plazo;
+    info();
+  });
+  info();
+}
+
+function modalMeterFondo() {
+  const libre = saldoHucha(store.estado);
+  const minimo = Number(leerParametro(store.estado, 'fondoMinimo', 10));
+  const lo = leerParametro(store.estado, 'fondoMinPct', -4);
+  const hi = leerParametro(store.estado, 'fondoMaxPct', 6);
+  const suelo = leerParametro(store.estado, 'fondoSueloPct', 75);
+  const ya = fondo(store.estado);
+  modal({
+    titulo: ya ? 'Meter más en el fondo' : 'Fondo variable',
+    cuerpo: `
+      <p class="mini tenue" style="margin-top:0">
+        Cada lunes el fondo se mueve entre <b>${esc(String(lo))}%</b> y <b>+${esc(String(hi))}%</b> sobre lo que has puesto.
+        Unas semanas sube y otras baja. Nunca vale menos del <b>${esc(String(suelo))}%</b> de lo que pones.
+        Lo que metas empieza a moverse la semana que viene. Tienes <b>${libre}</b> libres en la hucha.
+      </p>
+      <label for="fo-c">Cuántos créditos</label>
+      <input id="fo-c" type="number" min="${minimo}" max="${libre}" value="${Math.max(minimo, Math.min(libre, 20))}">
+      <p class="mini tenue" style="margin:10px 0 0">💡 Consejo: no metas aquí lo que vayas a necesitar pronto.</p>`,
+    acciones: [
+      { texto: 'Cancelar', clase: 'fantasma' },
+      {
+        texto: 'Meter',
+        clase: 'principal',
+        al: (raiz, cerrar) => {
+          const cantidad = Number(raiz.querySelector('#fo-c').value);
+          const r = meterEnFondo(store, { cantidad, fecha: hoy() });
+          if (!r.ok) { aviso(r.razon, 'mal'); return; }
+          cerrar();
+          aviso(`${cantidad} créditos al fondo. El lunes verás cómo se mueve.`, 'bien');
+          refrescar();
+        },
+      },
+    ],
+  });
+}
+
+function modalSacarFondo() {
+  const f = fondo(store.estado);
+  if (!f) return;
+  const dif = f.capital - f.aportado;
+  modal({
+    titulo: 'Sacar del fondo',
+    cuerpo: `
+      <p class="mini tenue" style="margin-top:0">
+        Pusiste <b>${f.aportado}</b> y ahora vale <b>${f.capital}</b>
+        (${dif >= 0 ? '+' : ''}${dif}). Lo que saques vuelve a tu hucha libre.
+        ${dif > 0 ? 'La ganancia pasa por el freno: si esta semana ya no cabe, llega un poco más tarde.' : ''}
+        ${dif < 0 ? 'Si sacas ahora, la bajada se convierte en una pérdida de verdad. Esperar también es una opción.' : ''}
+      </p>
+      <label for="fs-c">Cuántos créditos</label>
+      <input id="fs-c" type="number" min="1" max="${f.capital}" value="${f.capital}">`,
+    acciones: [
+      { texto: 'Cancelar', clase: 'fantasma' },
+      {
+        texto: 'Sacar',
+        clase: 'principal',
+        al: (raiz, cerrar) => {
+          const cantidad = Number(raiz.querySelector('#fs-c').value);
+          const r = sacarDeFondo(store, { cantidad, fecha: hoy() });
+          if (!r.ok) { aviso(r.razon, 'mal'); return; }
+          cerrar();
+          aviso(r.ganancia > 0
+            ? `Sacados ${r.sacado}: +${r.ganancia} de ganancia${r.aplazado ? ` (${r.aplazado} llegan más tarde por el freno)` : ''}.`
+            : `Sacados ${r.sacado}.`, 'bien');
           refrescar();
         },
       },
@@ -2368,6 +2469,8 @@ export function iniciar({ raizId = 'app' } = {}) {
   migrarTienda(store);
   // v3.6: el sistema por tiempo (1 crédito = 5 min). Una sola vez por casa.
   migrarTiempo(store);
+  // v3.7: la hucha nueva (plazo libre, fondo variable, freno y pausa).
+  migrarBanco(store);
 
   document.addEventListener('rt:almacen-lleno', () => {
     aviso('No cabe más en el móvil: borra fotos antiguas desde el panel.', 'mal');

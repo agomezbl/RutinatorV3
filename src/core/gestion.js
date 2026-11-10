@@ -208,6 +208,32 @@ export function migrarTiempo(store, { fecha = toDateKey(new Date()) } = {}) {
 }
 
 /* ------------------------------------------------------------------ */
+/* v3.7 — el banco de Nil                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Pone en marcha la hucha nueva (banco.js y freno.js) en una casa instalada:
+ * depósito con plazo libre, fondo variable, freno semanal y pausa. Los
+ * depósitos ya abiertos conservan su interés. Idempotente.
+ */
+export const VERSION_BANCO = 37;
+const AJUSTES_37 = [
+  'interesHuchaPct', 'interesHuchaPeriodo', 'interesHuchaTope', 'depositoActivo', 'depositoMinimo',
+  'depositoPlazoMin', 'depositoPlazoMax', 'depositoPctMin', 'depositoPctMax', 'depositoMaximo',
+  'fondoActivo', 'fondoMinPct', 'fondoMaxPct', 'fondoMinimo', 'fondoMaximo', 'fondoSueloPct',
+  'frenoActivo', 'frenoPct', 'bancoPausado',
+];
+export function migrarBanco(store) {
+  if ((Number(store.ajuste('versionBanco', 0)) || 0) >= VERSION_BANCO) return false;
+  store.lote((s) => {
+    for (const k of AJUSTES_37) s.fijarAjuste(k, AJUSTES_POR_DEFECTO[k]);
+    if (s.ajuste('rendimientoAplazado', null) === null) s.fijarAjuste('rendimientoAplazado', 0);
+    s.fijarAjuste('versionBanco', VERSION_BANCO);
+  });
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
 /* Hucha: guardar y sacar                                              */
 /* ------------------------------------------------------------------ */
 

@@ -1,5 +1,5 @@
 /* Rutineitor v3 — service worker. Cachea la app para que funcione sin internet. */
-const CACHE = 'rutineitor-v3.6.0';
+const CACHE = 'rutineitor-v3.7.0';
 const ARCHIVOS = [
   './', './index.html', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-maskable-512.png',

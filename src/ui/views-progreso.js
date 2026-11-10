@@ -27,6 +27,11 @@ import {
   porcentajeDePlazo, PLAZOS, TIPOS_STAKING,
 } from '../core/staking.js';
 import { leerParametro } from '../core/tokenomics.js';
+import {
+  bancoV37, bancoPausado, rangoPlazo, pctVariable, fondo, fondoDisponible, consejoAhorro, FICHAS,
+} from '../core/banco.js';
+import { estadoFreno } from '../core/freno.js';
+import { creditosPorHora } from '../core/economy.js';
 import { CATEGORIAS } from '../core/defaults.js';
 import {
   barrasCategoria, barrasDia, areaEvolucion, barrasGanadoGastado,
@@ -480,6 +485,22 @@ export function vistaSalud(ctx) {
 /* AHORRO Y STAKINGS                                                   */
 /* ================================================================== */
 
+/** Las últimas semanas del fondo, en barras: verde si subió, rojo si bajó. */
+function barrasFondo(historial) {
+  const h = historial.slice(-12);
+  if (!h.length) return '<p class="mini tenue" style="margin:6px 0 0">Todavía no se ha movido: empieza el próximo lunes.</p>';
+  const max = Math.max(1, ...h.map((x) => Math.abs(x.pct)));
+  const An = 300; const Al = 60; const w = An / 12;
+  const barras = h.map((x, i) => {
+    const alto = Math.max(2, Math.abs(x.pct) / max * (Al / 2 - 4));
+    const y = x.pct >= 0 ? Al / 2 - alto : Al / 2;
+    return `<rect x="${(i * w + 3).toFixed(1)}" y="${y.toFixed(1)}" width="${(w - 6).toFixed(1)}" height="${alto.toFixed(1)}" rx="2"
+      fill="${x.pct >= 0 ? 'var(--exito)' : 'var(--peligro)'}"><title>${esc(formatoFechaCorta(x.semana))}: ${x.pct >= 0 ? '+' : ''}${esc(String(x.pct))}%</title></rect>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${An} ${Al}" class="grafica-fondo" role="img" aria-label="Cómo se ha movido el fondo las últimas semanas">
+    <line x1="0" y1="${Al / 2}" x2="${An}" y2="${Al / 2}" stroke="var(--borde, #ccc)" stroke-width="1"/>${barras}</svg>`;
+}
+
 export function vistaAhorro(ctx) {
   const { estado, hoy } = ctx;
   const libre = saldoHucha(estado);
@@ -490,12 +511,30 @@ export function vistaAhorro(ctx) {
   const interes = Number(leerParametro(estado, 'interesHuchaPct', 0));
   const periodo = leerParametro(estado, 'interesHuchaPeriodo', 'semana');
 
+  const v37 = bancoV37(estado);
+  const pausa = bancoPausado(estado);
+  const rango = rangoPlazo(estado);
+  const miFondo = fondo(estado);
+  const freno = estadoFreno(estado, hoy);
+  const consejo = consejoAhorro(estado, hoy, { horasDe: (c) => c / Math.max(1, creditosPorHora(estado)) });
+  const plazosTexto = v37
+    ? [...new Set([rango.min, Math.min(Math.max(14, rango.min), rango.max), rango.max])].map((d) => `${d} d: +${pctVariable(estado, d)}%`).join(' · ')
+    : PLAZOS.map((d) => `${d} d: +${porcentajeDePlazo(estado, d)}%`).join(' · ');
+
   const opciones = [
     leerParametro(estado, 'depositoActivo', true) && {
       tipo: 'deposito', icono: '🔒', nombre: 'Depósito a plazo',
-      texto: `Bloqueas créditos ${PLAZOS.join(', ')} días y cobras un interés fijo al vencer. Si lo rompes antes, recuperas el capital pero pierdes el interés.`,
-      detalle: PLAZOS.map((d) => `${d} d: +${porcentajeDePlazo(estado, d)}%`).join(' · '),
+      texto: v37
+        ? `Eliges cuántos días lo guardas, de ${rango.min} a ${rango.max}: cuanto más esperas, más ganas. El interés se fija el día que lo abres. Si lo rompes antes, recuperas lo que pusiste, pero pierdes el interés. Riesgo: ninguno.`
+        : `Bloqueas créditos ${PLAZOS.join(', ')} días y cobras un interés fijo al vencer. Si lo rompes antes, recuperas el capital pero pierdes el interés.`,
+      detalle: plazosTexto,
       accion: 'abrir-deposito',
+    },
+    fondoDisponible(estado) && !miFondo && {
+      tipo: 'fondo', icono: '📈', nombre: 'Fondo variable',
+      texto: 'Cada lunes sube o baja un poco, como una bolsa sencilla. Unas semanas ganas y otras pierdes; de media, crece. Lo sacas cuando quieras. Riesgo: medio (nunca baja de un suelo).',
+      detalle: `Entre ${leerParametro(estado, 'fondoMinPct', -4)}% y +${leerParametro(estado, 'fondoMaxPct', 6)}% cada semana · no baja del ${leerParametro(estado, 'fondoSueloPct', 75)}% de lo que pones`,
+      accion: 'meter-fondo',
     },
     leerParametro(estado, 'stakingSuenoActivo', true) && {
       tipo: 'sueno', icono: '🌙', nombre: 'Compromiso de sueño',
@@ -515,6 +554,7 @@ export function vistaAhorro(ctx) {
   const ultimos = movimientos(estado).slice().reverse().slice(0, 15);
 
   return `
+    ${pausa ? '<div class="tarjeta compacta"><p class="mini" style="margin:0">⏸️ Papá ha pausado la hucha un momento: ahora no gana interés y no se puede abrir nada nuevo. Lo tuyo sigue ahí.</p></div>' : ''}
     <div class="tarjeta">
       <h2>🟢 ⇄ 🐷 Mover mis créditos</h2>
       <div class="rejilla dos">
@@ -535,9 +575,11 @@ export function vistaAhorro(ctx) {
         <div class="dato"><div class="v">${bloqueado}</div><div class="e">Guardado</div></div>
         <div class="dato"><div class="v">${total}</div><div class="e">Total</div></div>
       </div>
-      ${interes > 0 ? `<p class="mini tenue" style="margin:10px 0 0">
+      ${interes > 0 && !pausa ? `<p class="mini tenue" style="margin:10px 0 0">
         Tu hucha libre gana un <b>${esc(String(interes))}%</b> cada ${esc(periodo === 'dia' ? 'día' : 'semana')} sin que hagas nada.
       </p>` : ''}
+      ${freno.activo && freno.aplazado > 0 ? `<p class="mini" style="margin:8px 0 0">⏳ Tienes <b>${esc(String(freno.aplazado))}</b> créditos de intereses esperando: el freno los suelta cuando haces tareas.</p>` : ''}
+      ${consejo ? `<div class="consejo-ahorro">💬 ${esc(consejo)}</div>` : ''}
     </div>
 
     ${activos.length ? `
@@ -551,6 +593,11 @@ export function vistaAhorro(ctx) {
           </div>
           <div class="mini tenue" style="margin:4px 0 8px">${esc(resumenStaking(estado, s, hoy))}</div>
           ${s.tipo === 'deposito' ? `<button class="btn pequeno fantasma" data-accion="romper-deposito" data-staking="${escAttr(s.id)}">Romperlo antes de tiempo</button>` : ''}
+          ${s.tipo === 'fondo' ? `${barrasFondo(s.historial || [])}
+            <div class="rejilla dos" style="margin-top:8px">
+              <button class="btn pequeno" data-accion="meter-fondo" ${pausa ? 'disabled' : ''}>Meter más</button>
+              <button class="btn pequeno fantasma" data-accion="sacar-fondo" ${pausa ? 'disabled' : ''}>Sacar</button>
+            </div>` : ''}
           ${s.tipo === 'sueno' ? barra((s.nochesCumplidas / Math.max(1, s.noches)) * 100, 'var(--acento2)') : ''}
           ${s.tipo === 'apuesta' ? barra(((s.semanasSuperadas || 0) / Math.max(1, s.semanas)) * 100, 'var(--aviso)') : ''}
         </div>`).join('')}
@@ -562,7 +609,7 @@ export function vistaAhorro(ctx) {
         <div class="staking-card">
           <div class="fila sep">
             <span style="font-weight:700">${esc(o.icono)} ${esc(o.nombre)}</span>
-            <button class="btn pequeno principal" data-accion="${escAttr(o.accion)}">Abrir</button>
+            <button class="btn pequeno principal" data-accion="${escAttr(o.accion)}" ${pausa ? 'disabled' : ''}>Abrir</button>
           </div>
           <div class="mini tenue" style="margin-top:4px">${esc(o.texto)}</div>
           <div class="mini" style="margin-top:4px;color:var(--acento2)">${esc(o.detalle)}</div>
@@ -570,7 +617,13 @@ export function vistaAhorro(ctx) {
         : vacio('Papá tiene desactivadas todas las opciones de ahorro.', '🔒')}
       <p class="nota-metodo">
         Todo esto sale de la hucha, nunca de tus créditos del día a día: eso no se bloquea.
+        ${freno.activo ? `Y hay un freno: lo que gana la hucha en una semana no pasa del ${esc(String(freno.pct))}% de lo que ganas con tus tareas.` : ''}
       </p>
+    </div>
+
+    <div class="tarjeta">
+      <h2>📘 Aprende</h2>
+      ${FICHAS.map((f) => `<details class="ficha-ahorro"><summary>${esc(f.icono)} ${esc(f.titulo)}</summary><p class="mini tenue">${esc(f.texto)}</p></details>`).join('')}
     </div>
 
     ${historial.length ? `

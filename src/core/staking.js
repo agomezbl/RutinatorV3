@@ -19,9 +19,14 @@
 import { uid, toDateKey, addDays, creditos, weekIdOf } from './util.js';
 import { crearMovimiento, TIPOS, saldoHucha } from './ledger.js';
 import { leerParametro } from './tokenomics.js';
+import {
+  bancoV37, bancoPausado, pctVariable, rangoPlazo, capitalEnDepositos, procesarFondo,
+} from './banco.js';
+import { pagarRendimiento, pagarAplazado, frenoActivo } from './freno.js';
 
 export const TIPOS_STAKING = {
   deposito: { id: 'deposito', nombre: 'Depósito a plazo', icono: '🔒', riesgo: 'ninguno' },
+  fondo: { id: 'fondo', nombre: 'Fondo variable', icono: '📈', riesgo: 'medio' },
   apuesta: { id: 'apuesta', nombre: 'Apuesta de racha', icono: '🎲', riesgo: 'alto' },
   sueno: { id: 'sueno', nombre: 'Compromiso de sueño', icono: '🌙', riesgo: 'ninguno' },
 };
@@ -83,6 +88,8 @@ function devolver(store, { cantidad, concepto, refId, fecha }) {
 /* ------------------------------------------------------------------ */
 
 export function porcentajeDePlazo(estado, dias) {
+  // v3.7: cualquier plazo del rango, con el interés en una recta.
+  if (bancoV37(estado)) return pctVariable(estado, dias);
   const clave = { 7: 'deposito7Pct', 14: 'deposito14Pct', 30: 'deposito30Pct' }[dias];
   return Number(leerParametro(estado, clave, 0)) || 0;
 }
@@ -91,11 +98,21 @@ export function puedeAbrirDeposito(estado, { capital, dias, fecha }) {
   if (!leerParametro(estado, 'depositoActivo', true)) {
     return { ok: false, razon: 'Los depósitos están desactivados ahora mismo.' };
   }
-  if (!PLAZOS.includes(Number(dias))) return { ok: false, razon: 'Ese plazo no existe.' };
+  if (bancoPausado(estado)) return { ok: false, razon: 'Papá ha pausado la hucha un momento.' };
+  if (bancoV37(estado)) {
+    const { min, max } = rangoPlazo(estado);
+    const d = Number(dias);
+    if (!Number.isInteger(d) || d < min || d > max) return { ok: false, razon: `El plazo tiene que ser de ${min} a ${max} días.` };
+  } else if (!PLAZOS.includes(Number(dias))) return { ok: false, razon: 'Ese plazo no existe.' };
   const minimo = Number(leerParametro(estado, 'depositoMinimo', 20));
   const c = creditos(capital);
   if (c < minimo) return { ok: false, razon: `El depósito mínimo es de ${minimo} créditos.` };
   if (c > saldoHucha(estado)) return { ok: false, razon: 'No tienes tanto en la hucha libre.' };
+  const tope = Number(leerParametro(estado, 'depositoMaximo', 0)) || 0;
+  const ya = capitalEnDepositos(estado);
+  if (tope > 0 && ya + c > tope) {
+    return { ok: false, razon: `En depósitos caben como mucho ${tope} créditos a la vez. Te quedan ${Math.max(0, tope - ya)}.` };
+  }
   return { ok: true };
 }
 
@@ -169,6 +186,11 @@ export function abonarInteresHucha(store, { fecha = toDateKey(new Date()) } = {}
   const clavePeriodo = periodo === 'dia' ? fecha : weekIdOf(fecha);
   const ultimo = leerParametro(estado, 'ultimoInteresHucha', null);
   if (ultimo === clavePeriodo) return { ok: false, razon: 'Ya se abonó este periodo.' };
+  if (bancoPausado(estado)) {
+    // En pausa no se genera interés, y ese periodo no se recupera después.
+    store.fijarAjuste('ultimoInteresHucha', clavePeriodo);
+    return { ok: false, razon: 'La hucha está en pausa.' };
+  }
 
   const saldo = saldoHucha(estado);
   if (saldo <= 0) {
@@ -184,22 +206,15 @@ export function abonarInteresHucha(store, { fecha = toDateKey(new Date()) } = {}
     return { ok: false, razon: 'Todavía no llega ni a 1 crédito de interés.' };
   }
 
+  let r;
   store.lote((s) => {
-    const mov = crearMovimiento({
-      cuenta: 'hucha',
-      tipo: TIPOS.GANADO,
-      cantidad: interes,
-      concepto: `Interés de la hucha (${pct}%)`,
-      categoria: 'staking',
-      fecha,
-      refTipo: 'interes',
-      refId: clavePeriodo,
-      actor: 'sistema',
+    // Pasa por el freno (freno.js): si no cabe, se aplaza; nunca se pierde.
+    r = pagarRendimiento(s, {
+      cantidad: interes, concepto: `Interés de la hucha (${pct}%)`, fecha, refTipo: 'interes', refId: clavePeriodo,
     });
-    s.set('ledger', mov.id, mov);
     s.fijarAjuste('ultimoInteresHucha', clavePeriodo);
   });
-  return { ok: true, interes };
+  return { ok: true, interes: r.pagado, aplazado: r.aplazado };
 }
 
 /* ------------------------------------------------------------------ */
@@ -378,7 +393,12 @@ export function procesarStakings(store, { fecha = toDateKey(new Date()) } = {}) 
     if (st.tipo === 'deposito' && fecha >= st.fechaVencimiento) {
       const interes = creditos(st.capital * st.pct / 100);
       store.lote((s) => {
-        const movId = devolver(store, {
+        let movId;
+        if (frenoActivo(s.estado)) {
+          // v3.7: el capital vuelve entero; el interés pasa por el freno.
+          movId = devolver(store, { cantidad: st.capital, concepto: `Depósito a ${st.dias} días: vuelve lo que pusiste`, refId: st.id, fecha });
+          pagarRendimiento(s, { cantidad: interes, concepto: `Interés del depósito a ${st.dias} días (+${interes})`, fecha, refId: st.id });
+        } else movId = devolver(store, {
           cantidad: st.capital + interes,
           concepto: `Depósito a ${st.dias} días vencido (+${interes})`,
           refId: st.id,
@@ -408,14 +428,26 @@ export function procesarStakings(store, { fecha = toDateKey(new Date()) } = {}) 
     }
   }
 
+  for (const ev of procesarFondo(store, { fecha })) eventos.push(ev);
+
+  // Primero lo que esperaba al freno, después el interés nuevo.
+  const aplazado = pagarAplazado(store, { fecha });
+  if (aplazado > 0) eventos.push({ tipo: 'aplazado', interes: aplazado });
+
   const int = abonarInteresHucha(store, { fecha });
-  if (int.ok) eventos.push({ tipo: 'interes-hucha', interes: int.interes });
+  if (int.ok && int.interes > 0) eventos.push({ tipo: 'interes-hucha', interes: int.interes });
 
   return eventos;
 }
 
 /** Texto corto del estado de un staking, para la interfaz. */
 export function resumenStaking(estado, st, fecha) {
+  if (st.tipo === 'fondo') {
+    const dif = (st.capital || 0) - (st.aportado || 0);
+    if (st.estado !== 'activo') return `Cerrado${st.interesPagado > 0 ? `: +${st.interesPagado} de ganancia` : ''}`;
+    const ultima = (st.historial || []).slice(-1)[0];
+    return `Pusiste ${st.aportado} · vale ${st.capital} (${dif >= 0 ? '+' : ''}${dif})${ultima ? ` · última semana ${ultima.pct >= 0 ? '+' : ''}${ultima.pct}%` : ' · se moverá el próximo lunes'}`;
+  }
   if (st.tipo === 'deposito') {
     const dias = Math.max(0, Math.ceil((new Date(`${st.fechaVencimiento}T00:00:00`) - new Date(`${fecha}T00:00:00`)) / 86400000));
     if (st.estado === 'activo') return `Vence en ${dias} día${dias === 1 ? '' : 's'} · +${creditos(st.capital * st.pct / 100)} de interés`;

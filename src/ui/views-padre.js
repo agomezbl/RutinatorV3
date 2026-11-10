@@ -310,14 +310,18 @@ function tabSistema(ctx) {
         <div><label for="aj-cena1">Cena entre semana</label>
           <input id="aj-cena1" type="time" value="${escAttr(String(v('cenaEntreSemana', '20:30')))}" data-ajuste="cenaEntreSemana" data-tipo="texto"></div>
         <div><label for="aj-cena2">Cena fin de semana</label>
-          <input id="aj-cena2" type="time" value="${escAttr(String(v('cenaFinde', '21:15')))}" data-ajuste="cenaFinde" data-tipo="texto"></div>
+          <input id="aj-cena2" type="time" value="${escAttr(String(v('cenaFinde', '21:00')))}" data-ajuste="cenaFinde" data-tipo="texto"></div>
         <div><label for="aj-dor1">Dormir entre semana</label>
-          <input id="aj-dor1" type="time" value="${escAttr(String(v('dormirEntreSemana', '22:30')))}" data-ajuste="dormirEntreSemana" data-tipo="texto"></div>
+          <input id="aj-dor1" type="time" value="${escAttr(String(v('dormirEntreSemana', '22:00')))}" data-ajuste="dormirEntreSemana" data-tipo="texto"></div>
         <div><label for="aj-dor2">Dormir fin de semana</label>
-          <input id="aj-dor2" type="time" value="${escAttr(String(v('dormirFinde', '23:45')))}" data-ajuste="dormirFinde" data-tipo="texto"></div>
+          <input id="aj-dor2" type="time" value="${escAttr(String(v('dormirFinde', '23:00')))}" data-ajuste="dormirFinde" data-tipo="texto"></div>
       </div>
-      <label for="aj-corte">Hora de corte del ocio</label>
-      <input id="aj-corte" type="time" value="${escAttr(String(v('horaCorteOcio', '21:00')))}" data-ajuste="horaCorteOcio" data-tipo="texto">
+      <div class="rejilla dos">
+        <div><label for="aj-corte">Corte del ocio entre semana</label>
+          <input id="aj-corte" type="time" value="${escAttr(String(v('horaCorteOcio', '21:30')))}" data-ajuste="horaCorteOcio" data-tipo="texto"></div>
+        <div><label for="aj-corte2">Corte del ocio fin de semana</label>
+          <input id="aj-corte2" type="time" value="${escAttr(String(v('horaCorteOcioFinde', '22:30')))}" data-ajuste="horaCorteOcioFinde" data-tipo="texto"></div>
+      </div>
     </div>
 
     <div class="tarjeta">

@@ -20,7 +20,7 @@ const MARTES = '2026-09-08';
 const SABADO = '2026-09-12';
 
 function nuevoStore() {
-  return crearStore(catalogoInicial());
+  return crearStore(catalogoInicial({ version: 35 }));
 }
 
 /* ================= util ================= */

@@ -145,7 +145,9 @@ export function solicitarCompra(store, { itemId, fecha, hora = horaActual(), act
   const cuenta = ['hucha', 'estrellas'].includes(articulo.moneda) ? articulo.moneda : 'semana';
   const compraId = uid('cmp');
 
-  const mov = crearMovimiento({
+  // Un artículo gratuito (el permiso de PC, que se paga por tiempo) no deja
+  // un apunte de 0 en el histórico: solo la compra, para que papá la apruebe.
+  const mov = precio > 0 ? crearMovimiento({
     cuenta,
     tipo: TIPOS.GASTADO,
     cantidad: -precio,
@@ -155,10 +157,10 @@ export function solicitarCompra(store, { itemId, fecha, hora = horaActual(), act
     refTipo: 'compra',
     refId: compraId,
     actor,
-  });
+  }) : null;
 
   store.lote((s) => {
-    s.set('ledger', mov.id, mov);
+    if (mov) s.set('ledger', mov.id, mov);
     s.set('compras', compraId, {
       id: compraId,
       itemId,
@@ -170,7 +172,7 @@ export function solicitarCompra(store, { itemId, fecha, hora = horaActual(), act
       precio,
       fecha,
       estado: articulo.requiereAprobacion === false ? 'aprobada' : 'pendiente',
-      movimientoId: mov.id,
+      movimientoId: mov ? mov.id : null,
       solicitadaEn: Date.now(),
       resueltaEn: articulo.requiereAprobacion === false ? Date.now() : null,
       motivo: null,

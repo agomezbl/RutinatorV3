@@ -47,7 +47,7 @@ const LUNES = '2026-09-07';
 const MARTES = '2026-09-08';
 const SABADO = '2026-09-12';
 
-function nuevoStore() { return crearStore(catalogoInicial()); }
+function nuevoStore() { return crearStore(catalogoInicial({ version: 35 })); }
 function darCreditos(s, fecha, cantidad, cuenta = 'semana') {
   ajusteManual(s, { cantidad, motivo: 'saldo de prueba', fecha, cuenta });
 }

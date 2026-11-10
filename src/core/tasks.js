@@ -203,7 +203,11 @@ export function aprobarMarca(store, marcaId, { auto = false, nota = '' } = {}) {
     // cuidado, y esa es justo la moneda del cuidado.
     let extraId = marca.movimientoExtraId || null;
     if (marca.tipo === 'obligatoria' && !extraId) {
-      const premio = Number(leerParametro(s.estado, 'estrellasPorObligatoria', 1));
+      // Cada obligatoria puede valer sus propias estrellas (v3.6: «Llamar a
+      // alguien de la familia» vale 2); si no lo dice, el valor general.
+      const propia = Number(s.estado.tareas?.[marca.tareaId]?.estrellas);
+      const premio = Number.isFinite(propia) && propia >= 0
+        ? propia : Number(leerParametro(s.estado, 'estrellasPorObligatoria', 1));
       if (premio > 0) {
         const mov = crearMovimiento({
           cuenta: 'estrellas',

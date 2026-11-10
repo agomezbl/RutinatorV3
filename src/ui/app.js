@@ -20,7 +20,7 @@ import {
   solicitarCompra, aprobarCompra, denegarCompra, iniciarSesionPc, pararSesionPc, comprasDe,
 } from '../core/leisure.js';
 import { cerrarSemana, semanasPendientesDeCierre } from '../core/week.js';
-import { AMBITOS_MULTIPLICADOR } from '../core/economy.js';
+import { AMBITOS_MULTIPLICADOR, valorPorTiempo, minutosPorCredito } from '../core/economy.js';
 import { crearBloque, validarBloque, TIPOS_BLOQUE } from '../core/schedule.js';
 import { crearEvento, validarEvento, recordatoriosInminentes, COLORES_EVENTO, mesAnterior, mesSiguiente } from '../core/calendar.js';
 import { objetivosDe } from '../core/circadian.js';
@@ -52,7 +52,7 @@ import { registrarNocheEnStaking } from '../core/staking.js';
 import { validarParametro, leerParametro } from '../core/tokenomics.js';
 import { saldoHucha, saldoEstrellas, saldoCreditos, modoSaldo } from '../core/ledger.js';
 import {
-  migrarEconomia, migrarTienda, ajusteCuenta, anularMovimiento, historicoCSV, guardarEnHucha, sacarDeHucha,
+  migrarEconomia, migrarTienda, migrarTiempo, ajusteCuenta, anularMovimiento, historicoCSV, guardarEnHucha, sacarDeHucha,
   validarDiaPasado, fechaRecuperable, ajustarPrecios, tiendaPausada, cambiarInstrumento,
   MOTIVOS_FRECUENTES, DIAS_ATRAS, aplicarCategorias, editarCategoria, restaurarCategoria,
   esCategoriaDeFabrica, puedeSacarNil, ETIQUETA_CUENTA,
@@ -1713,6 +1713,7 @@ function leerFormularioTarea(raiz, t) {
     id: (t.opciones || [])[i]?.id || `op${i + 1}_${Date.now().toString(36)}`,
     etiqueta: fila.querySelector('[data-op-et]').value.trim(),
     valor: creditos(fila.querySelector('[data-op-v]').value),
+    minutos: Math.max(0, Math.round(Number(fila.querySelector('[data-op-m]')?.value) || 0)) || null,
   }));
   const b = {
     ...t,
@@ -1725,6 +1726,8 @@ function leerFormularioTarea(raiz, t) {
     requiereAprobacion: q('#ta-ap') ? q('#ta-ap').checked : t.requiereAprobacion,
     activa: q('#ta-a').checked,
     opciones: filas.length ? opciones : t.opciones,
+    minutos: q('#ta-min') ? (Math.max(0, Math.round(Number(q('#ta-min').value) || 0)) || null) : (t.minutos ?? null),
+    estrellas: q('#ta-es') ? Math.max(0, Math.min(10, creditos(q('#ta-es').value))) : t.estrellas,
   };
   if (q('#ta-f')) b.fecha = q('#ta-f').value;
   const dias = [...raiz.querySelectorAll('[data-dia]')];
@@ -1749,6 +1752,10 @@ function modalTarea(tarea, { categoria = null, borrador = null } = {}) {
   const tipoFijo = ETIQUETA_TIPO_FIJO[t.tipo];
   const opciones = t.tipo === 'eleccion' ? opcionesDeEleccion(t) : [];
   const sinValor = t.tipo === 'obligatoria' || t.tipo === 'eleccion';
+  // Los minutos son para las tareas que «duran»: no para las de puntualidad,
+  // las obligatorias (pagan estrellas) ni los hábitos.
+  const conMinutos = !['obligatoria', 'eleccion', 'circadiana', 'habito'].includes(t.tipo);
+  const mpc = minutosPorCredito(store.estado);
   const fondo = modal({
     titulo: tarea ? 'Editar tarea' : 'Nueva tarea',
     cuerpo: `
@@ -1759,8 +1766,12 @@ function modalTarea(tarea, { categoria = null, borrador = null } = {}) {
         ${TIPOS_EDITABLES.map((x) => `<option value="${escAttr(x.id)}" ${x.id === t.tipo ? 'selected' : ''}>${esc(x.etiqueta)}</option>`).join('')}
       </select>`}
       <div class="rejilla dos">
+        ${conMinutos ? `<div><label for="ta-min">Minutos que lleva</label>
+          <input id="ta-min" type="number" min="0" max="240" step="5" value="${escAttr(String(t.minutos || ''))}" placeholder="p. ej. 15"></div>` : ''}
         ${sinValor ? '' : `<div><label for="ta-v">Valor</label>
           <input id="ta-v" type="number" min="0" max="99" step="0.5" value="${escAttr(String(t.valor || 0))}"></div>`}
+        ${t.tipo === 'obligatoria' ? `<div><label for="ta-es">Estrellas que da</label>
+          <input id="ta-es" type="number" min="0" max="10" step="1" value="${escAttr(String(t.estrellas ?? store.ajuste('estrellasPorObligatoria', 1)))}"></div>` : ''}
         <div><label for="ta-i">Icono</label><input id="ta-i" type="text" maxlength="3" value="${escAttr(t.icono || '•')}"></div>
         ${t.tipo === 'obligatoria' || t.tipo === 'habito' ? '' : `<div><label for="ta-mo">Paga en</label>
           <select id="ta-mo">
@@ -1768,6 +1779,8 @@ function modalTarea(tarea, { categoria = null, borrador = null } = {}) {
             <option value="estrellas" ${t.moneda === 'estrellas' ? 'selected' : ''}>Estrellas</option>
           </select></div>`}
       </div>
+      ${conMinutos || t.tipo === 'eleccion' ? `<p class="mini tenue" style="margin:6px 0 0">⏱ Regla del tiempo: 1 crédito por cada ${esc(String(mpc))} min (mínimo 1).
+        Al poner los minutos, el valor se calcula solo; puedes cambiarlo a mano.</p>` : ''}
       <label for="ta-c">Grupo</label>
       <select id="ta-c">
         ${Object.entries(CATEGORIAS).map(([k, v]) => `<option value="${escAttr(k)}" ${k === t.categoria ? 'selected' : ''}>${esc(`${v.icono || ''} ${v.etiqueta}`.trim())}</option>`).join('')}
@@ -1777,7 +1790,8 @@ function modalTarea(tarea, { categoria = null, borrador = null } = {}) {
         ${opciones.map((o, i) => `
           <div class="fila" data-op-fila="${escAttr(String(i))}" style="gap:6px;margin-bottom:6px">
             <input class="crece" type="text" data-op-et="${escAttr(String(i))}" value="${escAttr(o.etiqueta)}" maxlength="40" aria-label="Opción">
-            <input type="number" data-op-v="${escAttr(String(i))}" value="${escAttr(String(o.valor))}" min="0" step="0.5" style="width:84px" aria-label="Valor">
+            <input type="number" data-op-m="${escAttr(String(i))}" value="${escAttr(String(o.minutos || ''))}" min="0" max="240" step="5" style="width:72px" aria-label="Minutos" placeholder="min">
+            <input type="number" data-op-v="${escAttr(String(i))}" value="${escAttr(String(o.valor))}" min="0" step="0.5" style="width:72px" aria-label="Valor">
             ${opciones.length > 2 ? `<button type="button" class="btn pequeno fantasma" data-op-quitar="${escAttr(String(i))}" aria-label="Quitar opción">✕</button>` : ''}
           </div>`).join('')}
         ${opciones.length < 4 ? '<button type="button" class="btn pequeno" data-op-anadir>＋ Opción</button>' : ''}` : ''}
@@ -1843,6 +1857,19 @@ function modalTarea(tarea, { categoria = null, borrador = null } = {}) {
   };
   const sel = fondo.querySelector('#ta-tipo');
   if (sel) sel.addEventListener('change', () => repintar(() => {}));
+  // Minutos → valor, al momento (el padre puede corregirlo después).
+  fondo.addEventListener('input', (ev) => {
+    const el = ev.target;
+    if (el.id === 'ta-min') {
+      const v = valorPorTiempo(store.estado, el.value);
+      const campo = fondo.querySelector('#ta-v');
+      if (v !== null && campo) campo.value = String(v);
+    } else if (el.dataset && el.dataset.opM !== undefined) {
+      const v = valorPorTiempo(store.estado, el.value);
+      const campo = fondo.querySelector(`[data-op-v="${el.dataset.opM}"]`);
+      if (v !== null && campo) campo.value = String(v);
+    }
+  });
   fondo.addEventListener('click', (ev) => {
     if (ev.target.closest('[data-op-anadir]')) {
       repintar((b) => { b.opciones = [...(b.opciones || []), { id: `op_${Date.now().toString(36)}`, etiqueta: '', valor: 2 }]; });
@@ -1875,7 +1902,7 @@ function modalPremio(articulo, { moneda = null, tipo = null } = {}) {
       <label for="pr-d">Descripción</label>
       <input id="pr-d" type="text" maxlength="110" value="${escAttr(a.descripcion || '')}">
       <div class="rejilla dos">
-        <div><label for="pr-p">Precio</label><input id="pr-p" type="number" min="${escAttr(String(suelo || 1))}" value="${escAttr(String(a.precio))}"></div>
+        <div><label for="pr-p">Precio</label><input id="pr-p" type="number" min="${escAttr(String(suelo || (a.tipo === 'pasePc' ? 0 : 1)))}" value="${escAttr(String(a.precio))}"></div>
         <div><label for="pr-i">Icono</label><input id="pr-i" type="text" maxlength="3" value="${escAttr(a.icono || '🎁')}"></div>
       </div>
       <label for="pr-du">Tiempo que da, en minutos (0 = no se indica)</label>
@@ -1926,7 +1953,7 @@ function modalPremio(articulo, { moneda = null, tipo = null } = {}) {
           const nombre = raiz.querySelector('#pr-n').value.trim();
           if (!nombre) { aviso('Ponle un nombre', 'mal'); return; }
           const precio = creditos(raiz.querySelector('#pr-p').value);
-          if (!(precio > 0)) { aviso('El precio tiene que ser mayor que 0', 'mal'); return; }
+          if (!(precio > 0) && a.tipo !== 'pasePc') { aviso('El precio tiene que ser mayor que 0', 'mal'); return; }
           if (suelo && precio < suelo) { aviso(`El mínimo de este artículo es ${suelo}`, 'mal'); return; }
           const tope = Number(raiz.querySelector('#pr-t').value) || 0;
           const duracion = Math.max(0, Math.min(720, Math.round(Number(raiz.querySelector('#pr-du').value) || 0)));
@@ -2339,6 +2366,8 @@ export function iniciar({ raizId = 'app' } = {}) {
   // v3.5.1: los bonos de pantalla dicen cuánto tiempo dan (sin tocar lo que
   // haya cambiado el padre).
   migrarTienda(store);
+  // v3.6: el sistema por tiempo (1 crédito = 5 min). Una sola vez por casa.
+  migrarTiempo(store);
 
   document.addEventListener('rt:almacen-lleno', () => {
     aviso('No cabe más en el móvil: borra fotos antiguas desde el panel.', 'mal');

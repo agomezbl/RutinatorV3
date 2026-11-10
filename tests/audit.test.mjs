@@ -186,7 +186,7 @@ test('auditoría: el nombre del hijo y los ajustes de texto', async () => {
 test('auditoría: el resumen semanal descargable también escapa el texto', async () => {
   const { generarResumenSemanal } = await import('../src/ui/report.js');
   const { catalogoInicial } = await import('../src/core/defaults.js');
-  const estado = catalogoInicial();
+  const estado = catalogoInicial({ version: 35 });
   const hoy = '2026-09-07';
   estado.ledger.a = {
     id: 'a', ts: Date.now(), fecha: hoy, cuenta: 'semana', tipo: 'ganado',

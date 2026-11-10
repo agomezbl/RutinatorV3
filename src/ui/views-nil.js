@@ -16,7 +16,9 @@ import { tiendaPausada } from '../core/gestion.js';
 import {
   tareasDelDia, marcaDe, cumplimientoDia, cumplimientoSemana, rachaActual, umbralRacha,
 } from '../core/tasks.js';
-import { estadoObjetivo, precioEfectivo, valorTareaEn } from '../core/economy.js';
+import {
+  estadoObjetivo, precioEfectivo, valorTareaEn, minutosPorCredito, creditosPorHora, textoMinutos,
+} from '../core/economy.js';
 import {
   puedeComprar, ocioDeHoy, sesionPcAbierta, puedeUsarPc, minutosPcDe, modoBuhoActivo,
 } from '../core/leisure.js';
@@ -71,6 +73,13 @@ export function vistaTareas(ctx) {
   `;
 }
 
+/** Estrellas que da una obligatoria: las suyas, o el valor general. */
+function estrellasDe(estado, tarea) {
+  const propia = Number(tarea.estrellas);
+  if (Number.isFinite(propia) && propia >= 0) return propia;
+  return Number(estado.ajustes?.estrellasPorObligatoria?.valor ?? 1);
+}
+
 function filaTarea(ctx, tarea, fecha) {
   const { estado } = ctx;
   const marca = marcaDe(estado, fecha, tarea.id);
@@ -90,12 +99,17 @@ function filaTarea(ctx, tarea, fecha) {
     else if (marca.estado === 'nocumplida') meta = `No cumplida${marca.motivo ? `: ${marca.motivo}` : ''}`;
     if (marca.opcionEtiqueta) meta = `${marca.opcionEtiqueta} · ${meta}`;
   } else if (tarea.tipo === 'eleccion') {
-    meta = (tarea.opciones || []).map((o) => `${o.etiqueta} (${o.valor})`).join(' · ');
+    meta = (tarea.opciones || []).map((o) => `${o.etiqueta}${o.minutos ? ` · ⏱ ${textoMinutos(o.minutos)}` : ''} (${o.valor})`).join(' · ');
   } else if (esObligatoria) {
-    meta = 'Obligatoria: no da créditos, pero cuenta';
+    meta = 'Obligatoria · da estrellas, no créditos';
+    if (tarea.nota) meta = 'Obligatoria';
+  } else if (tarea.minutos) {
+    meta = `⏱ ${textoMinutos(tarea.minutos)}`;
   }
+  // La nota explica qué cuenta como hecha («antes de cenar», «sin avisar»…).
+  if (!marca && tarea.nota) meta = meta ? `${meta} · ${tarea.nota}` : tarea.nota;
 
-  const etiquetaValor = esObligatoria ? 'obligatoria'
+  const etiquetaValor = esObligatoria ? `+${estrellasDe(estado, tarea)} ⭐`
     : tarea.tipo === 'eleccion' && !marca ? `${Math.min(...(tarea.opciones || [{ valor: 0 }]).map((o) => o.valor))}-${Math.max(...(tarea.opciones || [{ valor: 0 }]).map((o) => o.valor))}`
     : `+${marca ? marca.valor : valor}`;
 
@@ -262,6 +276,8 @@ export function vistaTienda(ctx) {
         ${dato(saldoEstrellas(estado), 'Estrellas')}
       </div>
       ${tiendaPausada(estado) ? '<p class="mini" style="color:var(--aviso);margin:8px 0 0">⏸️ La tienda está en pausa ahora mismo. Tus créditos siguen ahí.</p>' : ''}
+      <p class="mini tenue equivalencia" style="margin:8px 0 0">⏱ <b>1 crédito = ${esc(String(minutosPorCredito(estado)))} min de tareas.</b>
+        Una hora de tareas te da ${esc(String(creditosPorHora(estado)))} créditos, lo mismo que cuesta una hora de ocio.</p>
     </div>
 
     ${estado.ajustes?.avisoTiendaVisto?.valor ? '' : `

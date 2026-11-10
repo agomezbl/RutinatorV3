@@ -25,7 +25,10 @@ import {
 } from './tasks.js';
 import { leerParametro } from './tokenomics.js';
 import { precioEfectivo } from './economy.js';
-import { CATEGORIAS, PALETA_CATEGORIAS } from './defaults.js';
+import {
+  CATEGORIAS, PALETA_CATEGORIAS, TAREAS_POR_DEFECTO, TIENDA_POR_DEFECTO, AJUSTES_POR_DEFECTO,
+} from './defaults.js';
+import { capitalBloqueado } from './staking.js';
 
 /* ------------------------------------------------------------------ */
 /* Saldo continuo                                                      */
@@ -122,6 +125,84 @@ export function migrarTienda(store) {
       if (Object.keys(cambios).length) s.patch('tienda', id, cambios);
     }
     s.fijarAjuste('versionTienda', VERSION_TIENDA);
+  });
+  return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* v3.6 — la economía por tiempo                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Migración única al sistema nuevo: 1 crédito por cada 5 min de tarea y
+ * 12 créditos por hora de ocio. Es un cambio a la vista (se le explica al
+ * hijo), y por eso hace tres cosas de una vez:
+ *
+ *   1. Pone el catálogo nuevo: las tareas y la tienda de fábrica se
+ *      actualizan, las de fábrica antiguas que ya no existen se DESACTIVAN
+ *      (no se borran: el histórico sigue apuntando a ellas y se pueden
+ *      volver a encender). Lo que haya creado el padre no se toca.
+ *   2. Ajusta los parámetros que cambian (auto-aprobación, horas, PC…).
+ *   3. Multiplica por 1,5 el saldo y la hucha, para que lo ahorrado conserve
+ *      su valor frente a los premios, que suben en la misma proporción.
+ *      Lo que hay en depósitos a plazo también cuenta: el extra va a la hucha.
+ *
+ * Seguro con dos móviles: los apuntes de la conversión tienen un id fijo, así
+ * que si los dos aparatos la hacen a la vez escriben el MISMO apunte en vez de
+ * cobrarla dos veces. Idempotente.
+ */
+export const VERSION_TIEMPO = 36;
+export const FACTOR_CONVERSION_36 = 1.5;
+
+/** Ids de fábrica de la v3.5 que el catálogo nuevo ya no usa. */
+export const TAREAS_RETIRADAS_36 = ['t_levantarse', 't_dientes_m', 't_deberes', 't_ducha', 't_pantallas', 't_compra', 't_plantas', 'e_trato'];
+export const TIENDA_RETIRADA_36 = [
+  'p_peli', 'p_amigos', 'p_menu', 'p_sintareas', 'g_libro', 'g_auriculares', 'g_excursion',
+  'e_semillas', 'e_libreta', 'e_mineral', 'e_planta', 'e_salida',
+];
+/** Ajustes que cambian con el sistema nuevo (el resto se queda como esté). */
+const AJUSTES_36 = [
+  'autoAprobacionHoras', 'cenaFinde', 'dormirEntreSemana', 'dormirFinde', 'horaCorteOcio',
+  'horaCorteOcioFinde', 'precioMinimoAnime', 'pcCreditosPorBloque', 'minutosPorCredito',
+];
+
+export function migrarTiempo(store, { fecha = toDateKey(new Date()) } = {}) {
+  const v = Number(store.ajuste('versionEconomia', 0)) || 0;
+  if (v >= VERSION_TIEMPO) return false;
+  const e = store.estado;
+  const enUso = Object.keys(e.ledger || {}).length > 0;
+  const saldo = enUso ? saldoCreditos(e, fecha) : 0;
+  const hucha = enUso ? saldoHucha(e) + capitalBloqueado(e) : 0;
+  store.lote((s) => {
+    // 1. Catálogo
+    for (const t of TAREAS_POR_DEFECTO) {
+      const nuevo = { activa: true, ...t };
+      if (!nuevo.opciones) nuevo.opciones = null;
+      s.set('tareas', t.id, { ...(s.estado.tareas?.[t.id] || {}), ...nuevo });
+    }
+    for (const id of TAREAS_RETIRADAS_36) if (s.estado.tareas?.[id]) s.patch('tareas', id, { activa: false });
+    for (const a of TIENDA_POR_DEFECTO) {
+      s.set('tienda', a.id, { ...(s.estado.tienda?.[a.id] || {}), activo: true, ...a });
+    }
+    for (const id of TIENDA_RETIRADA_36) if (s.estado.tienda?.[id]) s.patch('tienda', id, { activo: false });
+    // 2. Ajustes
+    for (const k of AJUSTES_36) s.fijarAjuste(k, AJUSTES_POR_DEFECTO[k]);
+    // 3. Conversión ×1,5
+    const extra = (n) => creditos(n * (FACTOR_CONVERSION_36 - 1));
+    if (saldo > 0 && extra(saldo) > 0 && !s.estado.ledger?.mov_v36_saldo) {
+      s.set('ledger', 'mov_v36_saldo', crearMovimiento({
+        id: 'mov_v36_saldo', cuenta: 'semana', tipo: TIPOS.AJUSTE, cantidad: extra(saldo),
+        concepto: 'Sistema nuevo: tus créditos ×1,5', categoria: 'ajuste', fecha, actor: 'sistema',
+      }));
+    }
+    if (hucha > 0 && extra(hucha) > 0 && !s.estado.ledger?.mov_v36_hucha) {
+      s.set('ledger', 'mov_v36_hucha', crearMovimiento({
+        id: 'mov_v36_hucha', cuenta: 'hucha', tipo: TIPOS.AJUSTE, cantidad: extra(hucha),
+        concepto: 'Sistema nuevo: tu hucha ×1,5', categoria: 'ajuste', fecha, actor: 'sistema',
+      }));
+    }
+    s.fijarAjuste('versionEconomia', VERSION_TIEMPO);
+    s.fijarAjuste('fechaSistemaTiempo', fecha);
   });
   return true;
 }

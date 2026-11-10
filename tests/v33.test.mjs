@@ -39,7 +39,7 @@ import { TEMAS } from '../src/themes/themes.js';
 const HOY = '2026-09-16';
 
 function nuevo() {
-  return crearStore(catalogoInicial());
+  return crearStore(catalogoInicial({ version: 35 }));
 }
 
 /** Mete créditos ganados directamente, para no depender del catálogo. */

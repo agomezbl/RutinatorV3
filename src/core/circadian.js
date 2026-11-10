@@ -27,7 +27,7 @@ export function objetivosDe(estado, fecha) {
     finde,
     cena: finde ? (a.cenaFinde?.valor ?? '21:15') : (a.cenaEntreSemana?.valor ?? '20:30'),
     dormir: finde ? (a.dormirFinde?.valor ?? '23:45') : (a.dormirEntreSemana?.valor ?? '22:30'),
-    corte: a.horaCorteOcio?.valor ?? '21:00',
+    corte: finde ? (a.horaCorteOcioFinde?.valor ?? a.horaCorteOcio?.valor ?? '22:30') : (a.horaCorteOcio?.valor ?? '21:30'),
   };
 }
 

@@ -18,7 +18,7 @@ import {
 } from '../src/core/onboarding.js';
 
 function nuevo() {
-  return crearStore(catalogoInicial());
+  return crearStore(catalogoInicial({ version: 35 }));
 }
 
 const BASE = {

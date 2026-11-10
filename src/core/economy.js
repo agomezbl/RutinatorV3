@@ -63,6 +63,33 @@ export function valorTareaEn(estado, tarea, fecha, opcionId = null, extra = 0) {
   return creditos(base * multiplicadorEn(estado, fecha, extra));
 }
 
+/**
+ * La regla del tiempo (v3.6): cuántos créditos vale una tarea de `minutos`.
+ * Cada tramo de `minutosPorCredito` empezado cuenta 1, con un mínimo de 1.
+ * Devuelve null si no hay minutos (tareas de puntualidad, obligatorias…).
+ */
+export function minutosPorCredito(estado) {
+  const v = Number(estado?.ajustes?.minutosPorCredito?.valor ?? 5);
+  return Number.isFinite(v) && v >= 1 ? v : 5;
+}
+export function valorPorTiempo(estado, minutos) {
+  const m = Number(minutos);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  return Math.max(1, Math.ceil(m / minutosPorCredito(estado)));
+}
+/** Créditos que paga una hora de tareas con la regla actual (12 con 5 min). */
+export function creditosPorHora(estado) {
+  return Math.round(60 / minutosPorCredito(estado));
+}
+/** Texto corto de unos minutos: «15 min», «1 h», «1 h 30». */
+export function textoMinutos(min) {
+  const m = Math.round(Number(min) || 0);
+  if (m <= 0) return '';
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  return r ? `${h} h ${r}` : `${h} h`;
+}
+
 /** Precio efectivo de un artículo, respetando su suelo de precio. */
 export function precioEfectivo(articulo) {
   const min = Number(articulo.precioMinimo || 0);

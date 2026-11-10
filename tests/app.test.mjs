@@ -91,12 +91,12 @@ test('marcar una tarea desde la interfaz suma créditos y se puede deshacer', as
   const { clic, $, api, texto, dom } = await abrirApp();
   clic('.nav button[data-vista="tareas"]');
   const boton = $('[data-accion="marcar"][data-tarea="t_cama"]');
-  assert.ok(boton, 'la tarea "Hacer la cama" está en la lista');
+  assert.ok(boton, 'la tarea "Cama hecha" está en la lista');
   clic(boton);
   assert.equal(api.store.listar('marcas').length, 1);
   const marca = api.store.listar('marcas')[0];
   assert.equal(marca.estado, 'pendiente');
-  assert.equal(marca.valor, 2);
+  assert.equal(marca.valor, 1, 'cama: 5 min = 1 crédito');
   assert.match(texto(), /Esperando a que papá lo revise/);
 
   clic(`[data-accion="desmarcar"][data-tarea="t_cama"]`);
@@ -116,7 +116,7 @@ test('una tarea de doble opción abre el diálogo y paga lo elegido', async () =
   opciones.find((o) => o.dataset.opcion === 'solo')
     .dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const marca = api.store.listar('marcas')[0];
-  assert.equal(marca.valor, 4);
+  assert.equal(marca.valor, 3, 'lavavajillas entero: 15 min = 3 créditos');
   assert.equal(marca.opcionId, 'solo');
   dom.window.close();
 });
@@ -124,7 +124,7 @@ test('una tarea de doble opción abre el diálogo y paga lo elegido', async () =
 test('las tareas obligatorias se ven como tales y no dan créditos', async () => {
   const { clic, $, api, dom } = await abrirApp();
   clic('.nav button[data-vista="tareas"]');
-  clic('[data-accion="marcar"][data-tarea="t_dientes_m"]');
+  clic('[data-accion="marcar"][data-tarea="t_dientes_n"]');
   const marca = api.store.listar('marcas')[0];
   assert.equal(marca.valor, 0);
   assert.equal(api.store.listar('ledger').length, 0);
@@ -793,7 +793,7 @@ test('Economía → Reglas enseña lo sencillo; lo avanzado aparece al encenderl
 
 test('la app arranca con la economía simplificada (sin pestaña Tokenomics, con Días pasados)', async () => {
   const { api, pintar, $, $$, dom } = await abrirApp();
-  assert.equal(api.store.ajuste('versionEconomia'), 35);
+  assert.equal(api.store.ajuste('versionEconomia'), 36);
   assert.equal(api.store.ajuste('apuestaActiva'), false);
   assert.equal(api.store.ajuste('modoSaldo'), 'continuo');
   comoPadre(api, pintar, 'economia');
@@ -890,11 +890,11 @@ test('editar un regalo de estrellas no lo cambia de moneda', async () => {
   comoPadre(api, pintar, 'catalogo');
   api.ui.catTab = 'tienda';
   pintar();
-  clic('[data-accion="editar-premio"][data-articulo="e_semillas"]');
+  clic('[data-accion="editar-premio"][data-articulo="e_libro"]');
   assert.equal($('.modal-fondo #pr-m').value, 'estrellas');
   $('.modal-fondo #pr-p').value = '12';
   pulsarUltimaAccion(window, $);
-  const a = api.store.obtener('tienda', 'e_semillas');
+  const a = api.store.obtener('tienda', 'e_libro');
   assert.equal(a.moneda, 'estrellas');
   assert.equal(a.precio, 12);
   dom.window.close();

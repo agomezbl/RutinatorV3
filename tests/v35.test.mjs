@@ -39,7 +39,7 @@ const LUNES2 = '2026-09-14';
 const MIERCOLES2 = '2026-09-16';
 
 function nuevoStore() {
-  const s = crearStore(catalogoInicial());
+  const s = crearStore(catalogoInicial({ version: 35 }));
   migrarEconomia(s);
   return s;
 }
@@ -53,7 +53,7 @@ function dar(s, cantidad, fecha = LUNES, cuenta = 'semana') {
 /* ------------------------------- migración ------------------------------ */
 
 test('la migración apaga lo avanzado una sola vez y lo deja todo recuperable', () => {
-  const s = crearStore(catalogoInicial());
+  const s = crearStore(catalogoInicial({ version: 35 }));
   assert.equal(s.ajuste('apuestaActiva'), true, 'de fábrica venía encendido');
   assert.equal(migrarEconomia(s), true);
   for (const inst of INSTRUMENTOS_AVANZADOS) {
@@ -307,7 +307,7 @@ test('los grupos de tareas se renombran, se crean y se restauran', () => {
   restaurarCategoria(s, 'tarde');
   assert.equal(CATEGORIAS.tarde.etiqueta, original);
   // otro estado sin personalizar deja las categorías de fábrica
-  aplicarCategorias(crearStore(catalogoInicial()).estado);
+  aplicarCategorias(crearStore(catalogoInicial({ version: 35 })).estado);
   assert.equal(CATEGORIAS[n.id], undefined);
   assert.equal(CATEGORIAS.tarde.etiqueta, original);
 });

@@ -457,7 +457,7 @@ function diasTexto(t) {
 
 function valorTarea(t) {
   if (t.tipo === 'eleccion') return (t.opciones || []).map((o) => o.valor).join('/');
-  if (t.tipo === 'obligatoria') return '⭐';
+  if (t.tipo === 'obligatoria') return `⭐${t.estrellas ?? 1}`;
   return `${t.moneda === 'estrellas' || t.tipo === 'habito' ? '⭐' : '+'}${t.valor || 0}`;
 }
 
@@ -539,7 +539,7 @@ export function tabCatalogo(ctx) {
             <span class="ic">${esc(t.icono || '•')}</span>
             <div class="crece">
               <div class="nom">${esc(t.nombre)}</div>
-              <div class="meta">${esc(TIPO_TAREA[t.tipo] || t.tipo)} · ${esc(diasTexto(t))}${t.requiereAprobacion === false && t.tipo !== 'habito' ? ' · sin aprobación' : ''}${t.activa === false ? ' · desactivada' : ''}</div>
+              <div class="meta">${esc(TIPO_TAREA[t.tipo] || t.tipo)} · ${esc(diasTexto(t))}${t.minutos ? ` · ⏱ ${esc(textoDuracion(t.minutos))}` : ''}${t.requiereAprobacion === false && t.tipo !== 'habito' ? ' · sin aprobación' : ''}${t.activa === false ? ' · desactivada' : ''}</div>
             </div>
             <div class="val">${esc(valorTarea(t))}</div>
             <button class="btn pequeno fantasma" data-accion="editar-tarea" data-tarea="${escAttr(t.id)}" aria-label="Editar">✏️</button>

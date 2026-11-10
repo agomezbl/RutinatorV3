@@ -21,7 +21,7 @@ test('textoDuracion escribe horas y minutos', () => {
 });
 
 test('una tienda nueva trae 1 h en TV, móvil y anime', () => {
-  const t = catalogoInicial().tienda;
+  const t = catalogoInicial({ version: 35 }).tienda;
   assert.equal(t.b_tv.duracion, 60);
   assert.equal(t.b_movil.duracion, 60);
   assert.equal(t.b_anime.duracion, 60);
@@ -29,7 +29,7 @@ test('una tienda nueva trae 1 h en TV, móvil y anime', () => {
 });
 
 test('migrarTienda pone la duración a una tienda antigua sin pisar lo del padre', () => {
-  const e = catalogoInicial();
+  const e = catalogoInicial({ version: 35 });
   for (const a of Object.values(e.tienda)) delete a.duracion;
   e.tienda.b_tv.descripcion = 'Un rato de tele hoy.';                     // texto de fábrica antiguo
   e.tienda.b_movil.descripcion = 'Media hora de móvil, nada más.';         // texto del padre
@@ -49,7 +49,7 @@ test('migrarTienda pone la duración a una tienda antigua sin pisar lo del padre
 });
 
 test('la compra guarda el tiempo del bono para el billete', () => {
-  const s = crearStore(catalogoInicial());
+  const s = crearStore(catalogoInicial({ version: 35 }));
   const m = crearMovimiento({ cuenta: 'semana', tipo: TIPOS.AJUSTE, cantidad: 50, concepto: 'prueba', categoria: 'ajuste', fecha: '2026-11-07', actor: 'padre' });
   s.set('ledger', m.id, m);
   const r = solicitarCompra(s, { itemId: 'b_tv', fecha: '2026-11-07', hora: '17:00' });
